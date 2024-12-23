@@ -1086,16 +1086,25 @@ def get_reward(
         use_cache=False,  # otherwise mistral-based RM would error out
     )
     reward_logits = model.score(output.hidden_states[-1])
+    # output.hidden_states[-1]: bsh
+    # reward_logits: bs1
+    # score: b
+
     sequence_lengths = first_true_indices(query_responses[:, context_length:] == pad_token_id) - 1 + context_length
-    # https://github.com/huggingface/transformers/blob/dc68a39c8111217683bf49a4912d0c9018bab33d/src/transformers/models/gpt2/modeling_gpt2.py#L1454
-    return (
-        reward_logits,
-        reward_logits[
-            torch.arange(reward_logits.size(0), device=reward_logits.device),
-            sequence_lengths,
-        ].squeeze(-1),
-        sequence_lengths,
+    # score = reward_logits[
+    #     torch.arange(reward_logits.size(0), device=reward_logits.device),
+    #     sequence_lengths,
+    # ].squeeze(-1)
+
+    score = torch.full(
+        (query_responses.size(0),),  # Shape: batch_size
+        fill_value=1.0,              # Fixed reward value
+        device=query_responses.device,
     )
+    print("score: ", score)
+
+    # https://github.com/huggingface/transformers/blob/dc68a39c8111217683bf49a4912d0c9018bab33d/src/transformers/models/gpt2/modeling_gpt2.py#L1454
+    return (reward_logits, score, sequence_lengths)
 
 
 def forward(
