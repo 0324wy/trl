@@ -138,6 +138,7 @@ class PPOTrainer(Trainer):
         if data_collator is None:
             data_collator = DataCollatorWithPadding(self.processing_class)
 
+        # TODO wy: allow the model generate the max length tokens, but not stop automatically.
         self.policy_model.generation_config.eos_token_id = (
             None  # disable `pad_token_id` and `eos_token_id` because we just want to
         )
@@ -169,7 +170,9 @@ class PPOTrainer(Trainer):
         else:
             self.ref_model = create_reference_model(self.policy_model)
 
+        # TODO wy: reward model
         self.reward_model = reward_model
+        # TODO wy: dataset
         self.train_dataset = train_dataset
         self.train_dataset_len = len(train_dataset)
         self.value_model = value_model
@@ -197,6 +200,8 @@ class PPOTrainer(Trainer):
         args.local_mini_batch_size = exact_div(
             args.local_batch_size, args.num_mini_batches, "`local_batch_size` must be a multiple of `num_mini_batches`"
         )
+
+        # TODO wy: reward normalization
         if args.whiten_rewards:
             assert (
                 args.local_mini_batch_size >= 8
@@ -263,6 +268,7 @@ class PPOTrainer(Trainer):
         #########
         ### setup dataloader
         #########
+        # TODO wy: todo
         self.dataloader = DataLoader(
             self.train_dataset,
             batch_size=self.local_dataloader_batch_size,
@@ -343,6 +349,7 @@ class PPOTrainer(Trainer):
         optimizer = self.optimizer
         model = self.model
         ref_policy = self.ref_model
+        # TODO wy: reward model
         reward_model = self.reward_model
         processing_class = self.processing_class
         dataloader = self.dataloader
@@ -362,6 +369,7 @@ class PPOTrainer(Trainer):
         )
 
         accelerator.print("===training policy===")
+        # TODO wy: training metrics
         start_time = time.time()
         stats_shape = (args.num_ppo_epochs, args.num_mini_batches, args.gradient_accumulation_steps)
         approxkl_stats = torch.zeros(stats_shape, device=device)
@@ -405,6 +413,7 @@ class PPOTrainer(Trainer):
             self.state.episode += 1 * args.batch_size
             data = next(iter_dataloader)
             with torch.no_grad():
+                # TODO wy: generation
                 queries = data["input_ids"].to(device)
                 context_length = queries.shape[1]
                 responses = []
@@ -414,6 +423,7 @@ class PPOTrainer(Trainer):
                 scores = []
                 sequence_lengths = []
                 values = []
+                # TODO wy: active_model.generate and active_model.forward_pass
                 with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
                     query_responses, logitss = batch_generation(
                         unwrapped_model.policy,
@@ -435,6 +445,7 @@ class PPOTrainer(Trainer):
 
                     if ref_policy is None:
                         with self.null_ref_context():
+                            # TODO wy: ref_model.forward_pass
                             ref_output = forward(model.policy, query_response, processing_class.pad_token_id)
                     else:
                         ref_output = forward(ref_policy, query_response, processing_class.pad_token_id)
@@ -453,6 +464,7 @@ class PPOTrainer(Trainer):
                         )
 
                     # Response Processing 2. run reward model on the truncated responses
+                    # TODO wy: concat prompt and response
                     postprocessed_query_response = torch.cat((query, postprocessed_response), 1)
                     sequence_length = first_true_indices(postprocessed_response == processing_class.pad_token_id) - 1
                     unwrapped_value_model = accelerator.unwrap_model(model).value_model
@@ -499,6 +511,7 @@ class PPOTrainer(Trainer):
                 values = torch.masked_fill(values, padding_mask_p1, 0)
 
                 # 4. compute rewards
+                # TODO wy: reward
                 kl = logprobs - ref_logprobs
                 non_score_reward = -args.kl_coef * kl
                 rewards = non_score_reward.clone()
@@ -545,6 +558,7 @@ class PPOTrainer(Trainer):
                             mb_return = returns[micro_batch_inds]
                             mb_values = values[micro_batch_inds]
 
+                            # TODO wy: forward
                             output, vpred_temp = forward(model, mb_query_responses, processing_class.pad_token_id)
                             logits = output.logits[:, context_length - 1 : -1]
                             logits /= args.temperature + 1e-7
